@@ -1,3 +1,4 @@
+
 # This is a basic workflow to help you get started with Actions
 
 name: Build and push image to DockerHub
@@ -55,7 +56,6 @@ jobs:
       - name: Git submodule update
         run: |
           git submodule update --init
-
       - name: Log in to the Docker Hub registry
         uses: docker/login-action@v3
         with:
@@ -78,20 +78,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            docker.io/calendso/calendso
-            docker.io/calcom/cal.com
-            ghcr.io/calcom/cal.com
+            palbrattberg/cal.com
           # Add flavor latest only on full releases, not on pre-releases
           flavor: |
             latest=${{ !github.event.release.prerelease }}
-
       - name: Copy env
         run: |
           grep -o '^[^#]*' .env.example > .env
           cat .env >> $GITHUB_ENV
           echo "DATABASE_HOST=localhost:5432" >> $GITHUB_ENV
           eval $(sed -e '/^#/d' -e 's/^/export /' -e 's/$/;/' .env) ;
-
       # Temporarily disable ARM build due to runner performance issues
       # - name: Set up QEMU
       #   uses: docker/setup-qemu-action@v2
@@ -99,7 +95,6 @@ jobs:
       - name: Start database
         run: |
           docker compose up -d database
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -129,29 +124,22 @@ jobs:
             NEXT_PUBLIC_TELEMETRY_KEY=${{ env.NEXT_PUBLIC_TELEMETRY_KEY }}
             DATABASE_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@${{ env.DATABASE_HOST }}/${{ env.POSTGRES_DB }}
             DATABASE_DIRECT_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@${{ env.DATABASE_HOST }}/${{ env.POSTGRES_DB }}
-
       - name: Test runtime
         run: |
           tags="${{ steps.meta.outputs.tags }}"
           IFS=',' read -ra ADDR <<< "$tags"  # Convert string to array using ',' as delimiter
           tag=${ADDR[0]}  # Get the first tag
-
-          docker run --rm --network stack \
+          docker run --rm --network stack --name calcom \
             -p 3000:3000 \
             -e DATABASE_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@database/${{ env.POSTGRES_DB }} \
             -e DATABASE_DIRECT_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@database/${{ env.POSTGRES_DB }} \
             -e NEXTAUTH_SECRET=${{ env.NEXTAUTH_SECRET }} \
             -e CALENDSO_ENCRYPTION_KEY=${{ env.CALENDSO_ENCRYPTION_KEY }} \
-            $tag &
-
+            -d $tag 
             server_pid=$!
-
-
             echo "Waiting for the server to start..."
             sleep 120
-
             echo ${{ env.NEXT_PUBLIC_WEBAPP_URL }}/auth/login
-
             for i in {1..60}; do
               echo "Checking server health ($i/60)..."
               response=$(curl -o /dev/null -s -w "%{http_code}" ${{ env.NEXT_PUBLIC_WEBAPP_URL }}/auth/login)
@@ -159,18 +147,17 @@ jobs:
               if [[ "$response" == "200" ]] || [[ "$response" == "307" ]]; then
                 echo "Server is healthy"
                 # Now, shutdown the server
-                kill $server_pid
+                docker stop calcom
                 exit 0
               fi
               sleep 1
             done
-
             echo "Server health check failed"
-            kill $server_pid
+            docker stop calcom
             exit 1
         env:
-          NEXTAUTH_SECRET: 'EI4qqDpcfdvf4A+0aQEEx8JjHxHSy4uWiZw/F32K+pA='
-          CALENDSO_ENCRYPTION_KEY: '0zfLtY99wjeLnsM7qsa8xsT+Q0oSgnOL'
+          NEXTAUTH_SECRET: ${{ env.NEXTAUTH_SECRET }}
+          CALENDSO_ENCRYPTION_KEY: ${{ env.CALENDSO_ENCRYPTION_KEY }}
 
       - name: Push image
         id: docker_push
