@@ -19,6 +19,7 @@ jobs:
         remote_host: ${{ secrets.REMOTE_HOST }}
         remote_user: ${{ secrets.REMOTE_USER }}
         remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
+        legacy_allow_rsa_hostkeys: "true"
     
     - name: Install Docker
       uses: appleboy/ssh-action@v1.0.3
